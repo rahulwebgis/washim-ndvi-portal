@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Washim NDVI Drought Portal</title>
+<meta name="description" content="WebGIS portal for vegetation and drought monitoring of Washim district, Maharashtra, using Sentinel-2 and Landsat imagery.">
+<meta name="theme-color" content="#0E1411">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpath d=%22M16 3c6 5 9 10 9 15a9 9 0 0 1-18 0c0-5 3-10 9-15z%22 fill=%22%23D9A441%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lib/leaflet/leaflet.css">
+<link rel="stylesheet" href="lib/leaflet-draw/leaflet.draw.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c6 5 9 10 9 15a9 9 0 0 1-18 0c0-5 3-10 9-15z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 27V12M16 18l-4-3M16 22l4-3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    <div>
+      <div class="brand-title">Washim NDVI Drought Portal</div>
+      <div class="brand-sub">Maharashtra · District › Taluka › Village · Sentinel-2 &amp; Landsat</div>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="map" role="tab" id="tab-map">Map analysis</button>
+    <button class="tab" data-view="ts" role="tab" id="tab-ts">Time series</button>
+    <button class="tab" data-view="report" role="tab" id="tab-report">Report composer</button>
+    <button class="tab" data-view="guide" role="tab" id="tab-guide">Guide</button>
+  </nav>
+</header>
+
+<!-- ============ MAP VIEW ============ -->
+<main id="view-map" class="view active">
+  <aside class="panel left" id="left-panel">
+    <section class="card">
+      <h3><span class="step">1</span>Area of interest</h3>
+      <div class="seg" id="aoi-level">
+        <button data-level="district" class="on">District</button>
+        <button data-level="taluka">Taluka</button>
+        <button data-level="village">Village</button>
+        <button data-level="custom">Custom</button>
+      </div>
+      <div class="row" id="row-taluka" hidden>
+        <label for="sel-taluka">Taluka</label>
+        <select id="sel-taluka"></select>
+      </div>
+      <div id="row-village" hidden>
+        <div class="row"><label for="sel-vtaluka">Taluka</label><select id="sel-vtaluka"></select></div>
+        <div class="row"><label for="inp-vsearch">Village</label><input id="inp-vsearch" list="dl-villages" placeholder="Type a village name"></div>
+        <datalist id="dl-villages"></datalist>
+      </div>
+      <div id="row-custom" hidden>
+        <div class="btnrow">
+          <button class="btn sm" id="btn-draw-poly">Draw polygon</button>
+          <button class="btn sm" id="btn-draw-rect">Draw rectangle</button>
+        </div>
+        <label class="file-drop sm" for="inp-aoi-file">Upload AOI · GeoJSON or zipped Shapefile
+          <input type="file" id="inp-aoi-file" accept=".geojson,.json,.zip">
+        </label>
+      </div>
+      <div class="aoi-chip" id="aoi-chip">Washim district · 5,161 km²</div>
+    </section>
+
+    <section class="card">
+      <h3><span class="step">2</span>Imagery</h3>
+      <div class="row">
+        <label for="sel-source">Source</label>
+        <select id="sel-source">
+          <option value="pc-s2">Sentinel-2 L2A · Planetary Computer</option>
+          <option value="es-s2">Sentinel-2 L2A · Earth Search (AWS)</option>
+          <option value="pc-ls">Landsat 8/9 C2 L2 · Planetary Computer</option>
+          <option value="stac">Custom STAC API</option>
+          <option value="url">STAC item or COG URL</option>
+          <option value="upload">Upload GeoTIFF</option>
+        </select>
+      </div>
+
+      <div id="src-search">
+        <div id="src-stac" hidden>
+          <div class="row"><label for="inp-stac-api">STAC API</label><input id="inp-stac-api" placeholder="https://…/stac/v1" value="https://earth-search.aws.element84.com/v1"></div>
+          <div class="row"><label for="inp-stac-col">Collection</label><input id="inp-stac-col" value="sentinel-2-l2a"></div>
+        </div>
+        <div class="row two">
+          <div><label for="inp-from">From</label><input type="date" id="inp-from"></div>
+          <div><label for="inp-to">To</label><input type="date" id="inp-to"></div>
+        </div>
+        <div class="row">
+          <label for="inp-cloud">Max cloud <b id="lbl-cloud">20%</b></label>
+          <input type="range" id="inp-cloud" min="0" max="100" value="20">
+        </div>
+        <button class="btn primary wide" id="btn-search">Search scenes</button>
+      </div>
+
+      <div id="src-url" hidden>
+        <div class="row"><label for="inp-item-url">STAC item URL (JSON)</label><input id="inp-item-url" placeholder="https://…/items/S2B_43QFD_…"></div>
+        <button class="btn wide" id="btn-load-item">Load item</button>
+        <div class="or">or single-band / multi-band COG URLs</div>
+        <textarea id="inp-cog-urls" rows="3" placeholder="One COG URL per line. Multi-band: one URL. Single-band: one URL per band."></textarea>
+        <button class="btn wide" id="btn-load-cogs">Inspect COGs</button>
+      </div>
+
+      <div id="src-upload" hidden>
+        <label class="file-drop" for="inp-tif">Drop or choose GeoTIFF(s)<small>Multi-band stack or one file per band · UTM or WGS84</small>
+          <input type="file" id="inp-tif" accept=".tif,.tiff" multiple>
+        </label>
+      </div>
+
+      <div id="band-map" hidden>
+        <div class="subhead">Band mapping</div>
+        <div id="band-map-rows"></div>
+        <div class="row two">
+          <div><label for="inp-scale">Reflectance scale</label><input id="inp-scale" type="number" step="any" value="0.0001"></div>
+          <div><label for="inp-offset">Offset</label><input id="inp-offset" type="number" step="any" value="0"></div>
+        </div>
+        <div class="row two">
+          <div><label for="inp-tscale">Thermal scale</label><input id="inp-tscale" type="number" step="any" value="1"></div>
+          <div><label for="inp-toffset">Thermal offset</label><input id="inp-toffset" type="number" step="any" value="0"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="chk-emis"> Thermal band is brightness temperature (apply NDVI emissivity)</label>
+        <div class="row"><label for="inp-scene-date">Acquisition date</label><input type="date" id="inp-scene-date"></div>
+        <button class="btn primary wide" id="btn-use-custom">Use as scene</button>
+      </div>
+
+      <div id="scene-list" class="scene-list"></div>
+    </section>
+
+    <section class="card">
+      <h3><span class="step">3</span>Index &amp; processing</h3>
+      <div class="row">
+        <label for="sel-index">Index</label>
+        <select id="sel-index"></select>
+      </div>
+      <p class="hint" id="index-note"></p>
+      <div class="row two">
+        <div><label for="sel-res">Pixel size</label>
+          <select id="sel-res"><option value="10">10 m</option><option value="20">20 m</option><option value="30" selected>30 m</option><option value="60">60 m</option><option value="100">100 m</option><option value="250">250 m</option></select></div>
+        <div><label for="sel-compare">Compare</label>
+          <select id="sel-compare"><option value="off">Scene A only</option><option value="on">A vs B change</option></select></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="chk-cloudmask" checked> Mask clouds &amp; shadows (SCL / QA_PIXEL)</label>
+      <label class="chk"><input type="checkbox" id="chk-clip" checked> Clip to area of interest</label>
+      <div class="scene-slots">
+        <div class="slot" id="slot-A"><span class="slot-tag a">A</span><span class="slot-txt">No scene chosen</span></div>
+        <div class="slot" id="slot-B"><span class="slot-tag b">B</span><span class="slot-txt">Optional comparison scene</span></div>
+      </div>
+      <button class="btn primary wide" id="btn-compute">Compute</button>
+      <div class="progress" id="progress" hidden><div class="bar"></div><span class="ptxt"></span></div>
+    </section>
+
+    <section class="card">
+      <h3><span class="step">4</span>Display</h3>
+      <div class="row two">
+        <div><label for="sel-ramp">Colour ramp</label><select id="sel-ramp"></select></div>
+        <div><label for="sel-mode">Style</label><select id="sel-mode"><option value="stretch">Continuous</option><option value="class">Classified</option></select></div>
+      </div>
+      <div class="row two">
+        <div><label for="inp-vmin">Min</label><input type="number" id="inp-vmin" step="0.05"></div>
+        <div><label for="inp-vmax">Max</label><input type="number" id="inp-vmax" step="0.05"></div>
+      </div>
+      <div class="row"><label for="inp-opacity">Layer opacity <b id="lbl-op">90%</b></label><input type="range" id="inp-opacity" min="0" max="100" value="90"></div>
+      <div class="seg small" id="view-seg" hidden>
+        <button data-v="A" class="on">A</button><button data-v="B">B</button><button data-v="change">B − A</button><button data-v="swipe">Swipe</button>
+      </div>
+      <div class="row"><label for="sel-basemap">Basemap</label><select id="sel-basemap"></select></div>
+      <div class="layer-toggles">
+        <label class="chk"><input type="checkbox" id="lyr-region" checked> Neighbouring districts</label>
+        <label class="chk"><input type="checkbox" id="lyr-district" checked> Washim district</label>
+        <label class="chk"><input type="checkbox" id="lyr-taluka" checked> Taluka boundaries</label>
+        <label class="chk"><input type="checkbox" id="lyr-village"> Village boundaries</label>
+        <label class="chk"><input type="checkbox" id="lyr-choro"> Village choropleth (mean index)</label>
+        <label class="chk"><input type="checkbox" id="lyr-preview"> True-colour preview of scene A (PC tiler)</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3><span class="step">5</span>Export</h3>
+      <div class="btngrid">
+        <button class="btn sm" id="exp-tif">GeoTIFF (float)</button>
+        <button class="btn sm" id="exp-png">PNG + world file</button>
+        <button class="btn sm" id="exp-csv">Village stats CSV</button>
+        <button class="btn sm" id="exp-geojson">Village stats GeoJSON</button>
+        <button class="btn sm" id="exp-map">Quick map PNG</button>
+        <button class="btn sm accent" id="exp-compose">Compose report</button>
+      </div>
+    </section>
+    <footer class="credit">Imagery: Copernicus Sentinel-2 (ESA), USGS Landsat Collection 2 via Microsoft Planetary Computer &amp; Element 84 Earth Search. Boundaries: village polygons, LGD codes.</footer>
+  </aside>
+
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div class="map-legend" id="map-legend" hidden></div>
+    <div class="map-status" id="map-status"></div>
+    <div class="swipe" id="swipe" hidden><div class="swipe-line"></div><div class="swipe-handle" id="swipe-handle">⟷</div><span class="swipe-lbl l">A</span><span class="swipe-lbl r">B</span></div>
+    <button class="dock-toggle" id="dock-toggle" title="Show or hide results">Results</button>
+  </div>
+
+  <aside class="panel right" id="dock">
+    <div class="dock-tabs">
+      <button class="on" data-d="summary">Summary</button>
+      <button data-d="villages">Villages</button>
+      <button data-d="talukas">Talukas</button>
+      <button data-d="inspect">Inspector</button>
+    </div>
+    <div class="dock-body" id="d-summary">
+      <div class="empty" id="sum-empty">Search a scene, choose it as <b>A</b>, and press <b>Compute</b>. Statistics, a histogram and drought-class areas for the area of interest appear here.</div>
+      <div id="sum-body" hidden>
+        <div class="sum-head" id="sum-head"></div>
+        <div class="kpis" id="kpis"></div>
+        <h4>Distribution</h4>
+        <div class="chartbox"><canvas id="ch-hist"></canvas></div>
+        <h4 id="cls-title">Area by class</h4>
+        <div class="chartbox"><canvas id="ch-class"></canvas></div>
+        <table class="tbl" id="tbl-class"></table>
+      </div>
+    </div>
+    <div class="dock-body" id="d-villages" hidden>
+      <div class="row"><input id="vt-filter" placeholder="Filter villages or talukas"></div>
+      <div class="tblwrap"><table class="tbl sortable" id="tbl-villages"></table></div>
+    </div>
+    <div class="dock-body" id="d-talukas" hidden>
+      <div class="chartbox"><canvas id="ch-taluka"></canvas></div>
+      <div class="tblwrap"><table class="tbl" id="tbl-talukas"></table></div>
+    </div>
+    <div class="dock-body" id="d-inspect" hidden>
+      <div class="empty" id="inspect-body">Click anywhere on the map to read the index value, the village and the taluka at that point.</div>
+    </div>
+  </aside>
+</main>
+
+<!-- ============ TIME SERIES VIEW ============ -->
+<main id="view-ts" class="view">
+  <aside class="panel left">
+    <section class="card">
+      <h3>Time-series settings</h3>
+      <div class="row"><label for="ts-aoi">Area</label><select id="ts-aoi"></select></div>
+      <div class="row"><label for="ts-source">Source</label>
+        <select id="ts-source">
+          <option value="pc-s2">Sentinel-2 L2A · Planetary Computer</option>
+          <option value="es-s2">Sentinel-2 L2A · Earth Search (AWS)</option>
+          <option value="pc-ls">Landsat 8/9 C2 L2 · Planetary Computer</option>
+          <option value="stac">Custom STAC API (from Map tab)</option>
+        </select></div>
+      <div class="row"><label for="ts-index">Index</label><select id="ts-index"></select></div>
+      <div class="row two">
+        <div><label for="ts-from">From</label><input type="date" id="ts-from"></div>
+        <div><label for="ts-to">To</label><input type="date" id="ts-to"></div>
+      </div>
+      <div class="row two">
+        <div><label for="ts-cloud">Max cloud %</label><input type="number" id="ts-cloud" value="40" min="0" max="100"></div>
+        <div><label for="ts-res">Pixel size</label><select id="ts-res"><option value="100">100 m</option><option value="250" selected>250 m</option><option value="500">500 m</option></select></div>
+      </div>
+      <div class="row two">
+        <div><label for="ts-sample">Sampling</label><select id="ts-sample"><option value="month">Clearest scene per month</option><option value="half">Clearest per fortnight</option><option value="all">Every scene</option></select></div>
+        <div><label for="ts-minvalid">Min clear %</label><input type="number" id="ts-minvalid" value="40" min="0" max="100"></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="ts-talukas" checked> Also compute every taluka</label>
+      <div class="btnrow">
+        <button class="btn primary" id="ts-run">Run time series</button>
+        <button class="btn" id="ts-stop" disabled>Stop</button>
+      </div>
+      <div class="progress" id="ts-progress" hidden><div class="bar"></div><span class="ptxt"></span></div>
+      <p class="hint">Each date is read from cloud-optimised GeoTIFF overviews in your browser, masked for cloud, and averaged over the area. VCI uses the series' own minimum and maximum, so longer periods give more reliable drought classes.</p>
+    </section>
+    <section class="card">
+      <h3>Export</h3>
+      <div class="btngrid">
+        <button class="btn sm" id="ts-csv">Series CSV</button>
+        <button class="btn sm" id="ts-png">Chart PNG</button>
+        <button class="btn sm accent" id="ts-report">Add to report</button>
+      </div>
+    </section>
+  </aside>
+  <section class="ts-main">
+    <div class="kpis wide" id="ts-kpis"><div class="empty">Run a time series to see the trend, the Vegetation Condition Index and monthly anomalies for the selected area.</div></div>
+    <div class="ts-grid">
+      <div class="ts-card span2"><div class="ts-card-head"><h4 id="ts-title">Index trend</h4><label class="chk inline"><input type="checkbox" id="ts-show-tal"> Show talukas</label></div><div class="chartbox tall"><canvas id="ch-ts"></canvas></div></div>
+      <div class="ts-card"><h4>Vegetation Condition Index &amp; drought class</h4><div class="chartbox"><canvas id="ch-vci"></canvas></div><div class="vci-legend" id="vci-legend"></div></div>
+      <div class="ts-card"><h4>Anomaly vs. same-month mean</h4><div class="chartbox"><canvas id="ch-anom"></canvas></div><p class="hint" id="anom-note" hidden>Anomalies need the same calendar month in at least two years. Extend the date range.</p></div>
+      <div class="ts-card span2"><h4>Observations</h4><div class="tblwrap"><table class="tbl" id="tbl-ts"></table></div></div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ REPORT VIEW ============ -->
+<main id="view-report" class="view">
+  <aside class="panel left">
+    <section class="card">
+      <h3>Page</h3>
+      <div class="row two">
+        <div><label for="rp-size">Size</label><select id="rp-size"><option value="A4">A4</option><option value="A3">A3</option><option value="Letter">Letter</option></select></div>
+        <div><label for="rp-orient">Orientation</label><select id="rp-orient"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn sm" id="rp-template">Auto layout</button>
+        <button class="btn sm" id="rp-addpage">Add page</button>
+        <button class="btn sm" id="rp-clear">Clear page</button>
+      </div>
+    </section>
+    <section class="card">
+      <h3>Add element</h3>
+      <div class="btngrid three">
+        <button class="btn sm" data-add="title">Title</button>
+        <button class="btn sm" data-add="text">Text</button>
+        <button class="btn sm" data-add="map">Map</button>
+        <button class="btn sm" data-add="legend">Legend</button>
+        <button class="btn sm" data-add="north">North arrow</button>
+        <button class="btn sm" data-add="scalebar">Scale bar</button>
+        <button class="btn sm" data-add="locator">Locator map</button>
+        <button class="btn sm" data-add="stats">Stats table</button>
+        <button class="btn sm" data-add="chart">Chart</button>
+        <button class="btn sm" data-add="villages">Village table</button>
+        <button class="btn sm" data-add="image">Image / logo</button>
+        <button class="btn sm" data-add="footer">Footer</button>
+      </div>
+      <input type="file" id="rp-image-file" accept="image/*" hidden>
+    </section>
+    <section class="card" id="rp-props">
+      <h3>Selected element</h3>
+      <div class="empty sm" id="rp-noprops">Click an element on the page to edit it. Drag to move, drag the corner to resize, double-click text to edit.</div>
+      <div id="rp-propbody" hidden>
+        <div class="row two" id="rp-p-font">
+          <div><label for="rp-fs">Font size</label><input type="number" id="rp-fs" min="6" max="96"></div>
+          <div><label for="rp-fw">Weight</label><select id="rp-fw"><option value="400">Regular</option><option value="600">Semibold</option><option value="700">Bold</option></select></div>
+        </div>
+        <div class="row two" id="rp-p-color">
+          <div><label for="rp-color">Text colour</label><input type="color" id="rp-color"></div>
+          <div><label for="rp-bg">Fill</label><input type="color" id="rp-bg"></div>
+        </div>
+        <div class="row two">
+          <div><label for="rp-align">Align</label><select id="rp-align"><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select></div>
+          <div><label for="rp-border">Frame</label><select id="rp-border"><option value="none">None</option><option value="thin">Thin line</option><option value="shadow">Card</option></select></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="rp-transparent"> Transparent fill</label>
+        <div class="row" id="rp-p-chart" hidden><label for="rp-chartsrc">Chart</label>
+          <select id="rp-chartsrc"><option value="hist">Histogram</option><option value="class">Area by class</option><option value="taluka">Taluka means</option><option value="ts">Time-series trend</option><option value="vci">VCI drought class</option><option value="anom">Monthly anomaly</option></select></div>
+        <div class="row" id="rp-p-map" hidden><label for="rp-mapext">Map extent</label>
+          <select id="rp-mapext"><option value="view">Current map view</option><option value="aoi">Area of interest</option><option value="district">Whole district</option></select></div>
+        <div class="btnrow">
+          <button class="btn sm" id="rp-refresh">Refresh content</button>
+          <button class="btn sm" id="rp-front">Bring front</button>
+          <button class="btn sm danger" id="rp-del">Delete</button>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <h3>Export</h3>
+      <div class="btngrid">
+        <button class="btn sm primary" id="rp-pdf">PDF</button>
+        <button class="btn sm" id="rp-png">PNG</button>
+        <button class="btn sm" id="rp-jpg">JPG</button>
+        <button class="btn sm" id="rp-print">Print</button>
+      </div>
+    </section>
+  </aside>
+  <section class="report-stage" id="report-stage"></section>
+</main>
+
+<!-- ============ GUIDE ============ -->
+<main id="view-guide" class="view">
+  <article class="guide">
+    <h1>How the portal works</h1>
+    <p>The portal reads cloud-optimised GeoTIFFs (COGs) directly in your browser, so every number you see is computed from the actual Sentinel-2 or Landsat pixels over Washim. Nothing is pre-processed on a server.</p>
+    <h2>Workflow</h2>
+    <ol>
+      <li><b>Area of interest.</b> Pick the whole district, one of the six talukas (Washim, Malegaon, Risod, Mangrulpir, Manora, Karanja), any of the 792 villages, or draw or upload your own polygon.</li>
+      <li><b>Imagery.</b> Search Sentinel-2 L2A (10 m, every 5 days) or Landsat 8/9 Collection 2 Level-2 (30 m, every 8 days combined). Tiles acquired on the same date are mosaicked automatically. You can also point at any STAC API, paste a STAC item or COG URL, or upload your own GeoTIFF.</li>
+      <li><b>Compute.</b> Choose an index and pixel size. Clouds, shadows and cirrus are masked with the Sentinel-2 Scene Classification layer or the Landsat QA_PIXEL bits. Pick a second scene B to map change.</li>
+      <li><b>Read the results.</b> The results panel lists area statistics, the histogram, area per class and mean values for every village and taluka. Click the map for pixel values.</li>
+      <li><b>Time series.</b> Build a monthly series over any area and read the Vegetation Condition Index drought classes and monthly anomalies.</li>
+      <li><b>Report.</b> The composer places map, legend, north arrow, scale bar, locator map, charts and tables on an A4/A3 page. Drag and resize each element, then export PDF, PNG or JPG, or print.</li>
+    </ol>
+    <h2>Indices</h2>
+    <table class="tbl guide-tbl">
+      <thead><tr><th>Index</th><th>Formula</th><th>Drought use</th></tr></thead>
+      <tbody id="guide-indices"></tbody>
+    </table>
+    <h2>Drought classes</h2>
+    <p>NDVI classes on the map are indicative thresholds for Deccan-plateau rainfed cropland (soybean, cotton, tur). The time-series tab uses the Vegetation Condition Index, VCI = (NDVI − NDVImin) / (NDVImax − NDVImin) × 100 (Kogan, 1995): below 10 extreme, 10–20 severe, 20–30 moderate, 30–40 mild, 40 and above no drought. Compare the same crop season across years (for example Kharif, September) for the most reliable reading.</p>
+    <h2>Land surface temperature</h2>
+    <p>LST uses the Landsat Collection 2 surface-temperature product (ST_B10: × 0.00341802 + 149.0 K, converted to °C). For an uploaded thermal band in brightness temperature, tick the emissivity option and the portal applies an NDVI-threshold emissivity correction.</p>
+    <h2>Hosting</h2>
+    <p>The portal is a static site. Put the folder on GitHub Pages, Netlify or any web server. It needs internet access to reach the STAC catalogues and imagery; uploads work offline.</p>
+  </article>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="lib/leaflet/leaflet.js"></script>
+<script src="lib/leaflet-draw/leaflet.draw.js"></script>
+<script src="lib/geotiff.js"></script>
+<script src="lib/proj4.js"></script>
+<script src="lib/chart.umd.js"></script>
+<script src="lib/jspdf.umd.min.js"></script>
+<script src="lib/html2canvas.min.js"></script>
+<script src="lib/interact.min.js"></script>
+<script src="lib/shp.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+<script src="js/timeseries.js"></script>
+<script src="js/report.js"></script>
+</body>
+</html>
